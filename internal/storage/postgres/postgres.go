@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -15,25 +16,30 @@ type Config struct {
 	ConnMaxLifeTime time.Duration
 	ConnMaxIdleTime time.Duration
 }
-type PostgresVariables struct {
-	DbName     string
-	DbUser     string
-	DbPassword string
-	DbPort     string
-	UseSSL     bool
+
+type PostgresStorage struct {
+	db *sqlx.DB
 }
 
-func (pv *PostgresVariables) GetConnectionString() string {
+type postgresVariables struct {
+	dbName     string
+	dbUser     string
+	dbPassword string
+	dbPort     string
+	useSSL     bool
+}
+
+func (pv *postgresVariables) getConnectionString() string {
 	sslMode := "disable"
-	if pv.UseSSL {
+	if pv.useSSL {
 		sslMode = "require"
 	}
 
 	return fmt.Sprintf("user=%s password=%s dbname=%s port=%s sslmode=%s",
-		pv.DbUser, pv.DbPassword, pv.DbName, pv.DbPort, sslMode)
+		pv.dbUser, pv.dbPassword, pv.dbName, pv.dbPort, sslMode)
 }
 
-func DefaultPostgresConfig() Config {
+func DefaultConfig() Config {
 	return Config{
 		MaxOpenConn:     10,
 		MaxIdleConn:     5,
@@ -42,7 +48,7 @@ func DefaultPostgresConfig() Config {
 	}
 }
 
-func NewPostgresConnection(connString string, cfg Config) (*sqlx.DB, error) {
+func newConnection(connString string, cfg Config) (*sqlx.DB, error) {
 	db, err := sqlx.Open("postgres", connString)
 	if err != nil {
 		return nil, err
@@ -52,25 +58,50 @@ func NewPostgresConnection(connString string, cfg Config) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("couldn't connect to database")
 	}
 
+	db.SetMaxOpenConns(int(cfg.MaxOpenConn))
+	db.SetMaxIdleConns(int(cfg.MaxIdleConn))
+	db.SetConnMaxLifetime(cfg.ConnMaxLifeTime)
+	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
+
 	return db, nil
 }
 
-func NewDefaultPostgresClient() *sqlx.DB {
-	pgConfig := DefaultPostgresConfig()
-
-	pgVars := PostgresVariables{
-		DbUser:     os.Getenv("POSTGRES_USER"),
-		DbPassword: os.Getenv("POSTGRES_PASSWORD"),
-		DbName:     os.Getenv("POSTGRES_DB"),
-		DbPort:     os.Getenv("POSTGRES_PORT"),
-		UseSSL:     false,
-	}
-
-	connStr := pgVars.GetConnectionString()
-
-	db, err := NewPostgresConnection(connStr, pgConfig)
+func New(connString string, cfg Config) (*PostgresStorage, error) {
+	db, err := newConnection(connString, cfg)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return db
+
+	return &PostgresStorage{db: db}, nil
+}
+
+func NewDefault() (*PostgresStorage, error) {
+	cfg := DefaultConfig()
+
+	vars := postgresVariables{
+		dbUser:     os.Getenv("POSTGRES_USER"),
+		dbPassword: os.Getenv("POSTGRES_PASSWORD"),
+		dbName:     os.Getenv("POSTGRES_DB"),
+		dbPort:     os.Getenv("POSTGRES_PORT"),
+		useSSL:     false,
+	}
+
+	connStr := vars.getConnectionString()
+	return New(connStr, cfg)
+}
+
+func (p *PostgresStorage) GetClient() interface{} {
+	return p.db
+}
+
+func (p *PostgresStorage) GetDB() *sqlx.DB {
+	return p.db
+}
+
+func (p *PostgresStorage) Ping(ctx context.Context) error {
+	return p.db.PingContext(ctx)
+}
+
+func (p *PostgresStorage) Close() error {
+	return p.db.Close()
 }
