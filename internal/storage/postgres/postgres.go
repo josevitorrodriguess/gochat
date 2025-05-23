@@ -55,7 +55,7 @@ func newConnection(connString string, cfg Config) (*sqlx.DB, error) {
 	}
 
 	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("couldn't connect to database")
+		return nil, fmt.Errorf("couldn't connect to database: %w", err)
 	}
 
 	db.SetMaxOpenConns(int(cfg.MaxOpenConn))
