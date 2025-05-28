@@ -40,7 +40,23 @@ func (api *Api) SignInHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
+	err = api.Sessions.RenewToken(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to renew session token"})
+	}
+
 	api.Sessions.Put(c.Request().Context(), "user_id", userID.String())
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "user authenticated"})
+}
+
+func (api *Api) LogoutHandler(c echo.Context) error {
+	err := api.Sessions.RenewToken(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to renew session token"})
+	}
+
+	api.Sessions.Remove(c.Request().Context(), "user_id")
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "user logged out"})
 }
